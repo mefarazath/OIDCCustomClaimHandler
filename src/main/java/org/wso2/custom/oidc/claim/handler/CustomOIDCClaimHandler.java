@@ -32,7 +32,10 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
         // let the super class set claims like 'sub'
         super.handleCustomClaims(jwtClaimsSet, requestMsgCtx);
 
+        // scopes requested in this oidc token request
+        String[] oidcScopes = requestMsgCtx.getScope();
         AuthenticatedUser authorizedUser = requestMsgCtx.getAuthorizedUser();
+
         String spName;
         try {
             spName = getSpNameFromClientID(requestMsgCtx.getOauth2AccessTokenReqDTO().getClientId());
@@ -41,7 +44,7 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
             return;
         }
 
-        Map<String, String> claimMap = getClaimsFromExternalAttributeStore(authorizedUser, spName);
+        Map<String, String> claimMap = getClaimsFromExternalAttributeStore(authorizedUser, spName, oidcScopes);
         // Set the claims to the JWT (id_token)
         for (Map.Entry<String, String> claimEntry : claimMap.entrySet()) {
             jwtClaimsSet.setClaim(claimEntry.getKey(), claimEntry.getValue());
@@ -56,6 +59,8 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
         super.handleCustomClaims(jwtClaimsSet, requestMsgCtx);
 
         AuthenticatedUser authorizedUser = requestMsgCtx.getAuthorizationReqDTO().getUser();
+        // scopes approved in this oidc authorization request
+        String[] oidcScopes = requestMsgCtx.getApprovedScope();
         String spName;
         try {
             spName = getSpNameFromClientID(requestMsgCtx.getAuthorizationReqDTO().getConsumerKey());
@@ -64,7 +69,7 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
             return;
         }
 
-        Map<String, String> claimMap = getClaimsFromExternalAttributeStore(authorizedUser, spName);
+        Map<String, String> claimMap = getClaimsFromExternalAttributeStore(authorizedUser, spName, oidcScopes);
         // Set the claims to the JWT (id_token)
         for (Map.Entry<String, String> claimEntry : claimMap.entrySet()) {
             jwtClaimsSet.setClaim(claimEntry.getKey(), claimEntry.getValue());
@@ -76,10 +81,12 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
      *
      * @param user                Authenticated User
      * @param serviceProviderName Application name
+     * @param oidcScopes          scopes requested (Scope strings sent in token/authorization request)
      * @return
      */
     protected Map<String, String> getClaimsFromExternalAttributeStore(AuthenticatedUser user,
-                                                                      String serviceProviderName) {
+                                                                      String serviceProviderName,
+                                                                      String[] oidcScopes) {
 
         log.info("Retrieving claims for user : " + user.getAuthenticatedSubjectIdentifier() + ", SP: " + serviceProviderName);
         // We can call an external API and get the claims
@@ -90,7 +97,7 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
     }
 
     /**
-     * Get the Service Provider name from the SAML issuer value.
+     * Get the Service Provider name from the OIDC Client ID.
      *
      * @return
      */
@@ -101,6 +108,9 @@ public class CustomOIDCClaimHandler extends SAMLAssertionClaimsCallback {
         try {
             sp = ApplicationManagementService.getInstance().getServiceProviderByClientId(clientID,
                     INBOUND_AUTH_TYPE_OAUTH2, tenantDomain);
+            if (sp == null) {
+                throw new IdentityException("Unable to find the service provider associated with clientId:" + clientID);
+            }
             return sp.getApplicationName();
         } catch (IdentityApplicationManagementException e) {
             throw new IdentityException("Error retrieving SP Name for client_id : " + clientID, e);
